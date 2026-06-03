@@ -127,6 +127,18 @@ func DataSourceGroup() *schema.Resource {
 				Optional: true,
 				Default:  "",
 			},
+			"pending": {
+				Type:        schema.TypeBool,
+				Description: "If set, ZMS will include pending members in the returned group",
+				Optional:    true,
+				Default:     false,
+			},
+			"only_active": {
+				Type:        schema.TypeBool,
+				Description: "If set, filter the returned members to drop pending, expired, and system-disabled entries",
+				Optional:    true,
+				Default:     false,
+			},
 		},
 	}
 }
@@ -138,7 +150,8 @@ func dataSourceGroupRead(_ context.Context, d *schema.ResourceData, meta interfa
 	groupName := d.Get("name").(string)
 	fullResourceName := domainName + GROUP_SEPARATOR + groupName
 
-	group, err := zmsClient.GetGroup(domainName, groupName)
+	pending := d.Get("pending").(bool)
+	group, err := zmsClient.GetGroup(domainName, groupName, &pending)
 	switch v := err.(type) {
 	case rdl.ResourceError:
 		if v.Code == 404 {
@@ -151,8 +164,12 @@ func dataSourceGroupRead(_ context.Context, d *schema.ResourceData, meta interfa
 	}
 	d.SetId(fullResourceName)
 
-	if len(group.GroupMembers) > 0 {
-		if err = d.Set("member", flattenGroupMembers(group.GroupMembers)); err != nil {
+	members := group.GroupMembers
+	if d.Get("only_active").(bool) {
+		members = filterActiveGroupMembers(members)
+	}
+	if len(members) > 0 {
+		if err = d.Set("member", flattenGroupMembers(members)); err != nil {
 			return diag.FromErr(err)
 		}
 	}
